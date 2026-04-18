@@ -306,7 +306,9 @@ forced consent to marketing, hidden fee escalation, broad indemnification of the
   if (firstTry.ok) {
     const data = await firstTry.json();
     const content = data.choices?.[0]?.message?.content || "";
-    parsed = JSON.parse(content);
+    if (!content) throw new Error("OpenAI returned empty content");
+    try { parsed = JSON.parse(content); }
+    catch (e) { throw new Error(`OpenAI returned invalid JSON: ${e.message}`); }
   } else {
     const errorBody = await firstTry.text().catch(() => "");
     // Older API behavior may reject json_schema; retry with classic JSON prompting.
@@ -333,7 +335,8 @@ forced consent to marketing, hidden fee escalation, broad indemnification of the
     const content = legacyData.choices?.[0]?.message?.content || "";
     const match = content.match(/\{[\s\S]*\}/);
     if (!match) throw new Error("no JSON in OpenAI response");
-    parsed = JSON.parse(match[0]);
+    try { parsed = JSON.parse(match[0]); }
+    catch (e) { throw new Error(`OpenAI returned invalid JSON: ${e.message}`); }
   }
 
   return sanitizeAnalysis(parsed);
