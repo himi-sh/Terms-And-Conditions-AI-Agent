@@ -60,3 +60,52 @@ body { padding: 12px; }
 .tca-status.error    { color: var(--err); border-color: var(--err); }
 
 .tca-empty { color: var(--muted); padding: 10px; text-align: center; border: 1px dashed var(--border); border-radius: 8px; }
+
+/* API key settings */
+.tca-key-row { flex: 1; display: flex; gap: 6px; align-items: center; }
+.tca-input {
+  flex: 1; min-width: 0; background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 12px;
+}
+.tca-input:focus { outline: none; border-color: var(--accent); }
+.tca-key-status { font-size: 11px; margin: 4px 0 0; color: var(--muted); }
+.tca-key-status.ok  { color: var(--ok); }
+.tca-key-status.err { color: var(--err); }
+
+/* Analysis section */
+.tca-analysis { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+.tca-analysis-loading { color: var(--accent); font-size: 11px; margin: 0; }
+.tca-analysis-error   { color: var(--err);    font-size: 11px; margin: 0 0 6px; }
+.tca-analyse-btn      { font-size: 11px; padding: 2px 8px; margin-top: 4px; }
+.tca-analysis-label   { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 8px 0 4px; }
+
+/* Score chips */
+.tca-scores { display: flex; gap: 8px; margin-bottom: 4px; }
+.tca-score-chip { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+.tca-score-num  { display: block; font-size: 22px; font-weight: 700; line-height: 1; }
+.tca-score-num.good  { color: var(--ok); }
+.tca-score-num.warn  { color: var(--warn); }
+.tca-score-num.bad   { color: var(--err); }
+.tca-score-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.tca-score-bar  { height: 3px; background: var(--border); border-radius: 2px; margin-top: 4px; }
+.tca-score-fill { height: 100%; border-radius: 2px; }
+.tca-score-fill.good { background: var(--ok); }
+.tca-score-fill.warn { background: var(--warn); }
+.tca-score-fill.bad  { background: var(--err); }
+
+/* Summary bullets */
+.tca-bullets { margin: 0; padding-left: 16px; font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
+.tca-bullets li { line-height: 1.4; }
+
+/* Red flags */
+.tca-flags { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.tca-flag { font-size: 11px; padding: 3px 8px; border-radius: 4px; border-left: 3px solid; }
+.tca-flag-high   { background: #3a1a1a; border-color: var(--err);    color: #ffb3b3; }
+.tca-flag-medium { background: #3a2a0a; border-color: var(--warn);   color: #ffe0a0; }
+.tca-flag-low    { background: #1a2a3a; border-color: var(--accent); color: #b3d4ff; }
+
+/* GDPR checklist */
+.tca-gdpr { display: flex; flex-wrap: wrap; gap: 4px; }
+.tca-gdpr-item { font-size: 11px; padding: 1px 7px; border-radius: 4px; }
+.tca-gdpr-item.ok   { background: #1a3a2a; color: var(--ok); }
+.tca-gdpr-item.miss { background: #2a1a1a; color: var(--err); text-decoration: line-through; opacity: 0.8; }

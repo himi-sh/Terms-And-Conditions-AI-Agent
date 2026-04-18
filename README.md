@@ -4,8 +4,8 @@ Browser extension (Manifest V3) that reads T&C, privacy, cookie and subscription
 
 ## Phased build
 
-- **Phase 1 (current):** MV3 skeleton, page-type detection, policy-link discovery, text extraction.
-- **Phase 2:** Five-bullet summary, red flags, GDPR completeness, transparency score.
+- **Phase 1 (done):** MV3 skeleton, page-type detection, policy-link discovery, text extraction.
+- **Phase 2 (current):** Five-bullet summary, red flags, GDPR completeness, transparency score — via Claude API.
 - **Phase 3:** Accepted-terms vault with URL, timestamp, content hash and version history.
 - **Phase 4:** Rights-action generator (access / delete / port / object / cancel) + proofreading.
 - **Phase 5:** Reminders for policy changes, renewals and rights-request deadlines; version diffing.
@@ -29,4 +29,4 @@ src/
 icons/                           # placeholder; add real PNGs before publishing
 ```
 
-Phase 1 has no network calls to any LLM. All logic runs locally.
+Phase 2 requires an Anthropic API key. Enter it in the Settings section at the bottom of the side panel — it is stored in `chrome.storage.local` and never sent anywhere except the Anthropic API.
