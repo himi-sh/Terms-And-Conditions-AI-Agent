@@ -1,7 +1,6 @@
 import { MSG } from "../shared/messages.js";
-import { putDocument, getDocument, putTabState, getTabState, clearTabState, sha256Hex } from "../shared/storage.js";
+import { putDocument, getDocument, putTabState, getTabState, clearTabState, sha256Hex, getApiKey } from "../shared/storage.js";
 
-// Open side panel when the toolbar action is clicked.
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
 });
@@ -24,7 +23,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const state = tabId ? await getTabState(tabId) : null;
       sendResponse({ kind: MSG.PANEL_STATE, state });
     })();
-    return true; // async response
+    return true;
+  }
+
+  if (msg.kind === MSG.PANEL_ANALYSE_DOC) {
+    (async () => {
+      const tabId = await currentTabId();
+      if (tabId && msg.url) {
+        analyzeOne(tabId, msg.url).catch(err => console.error("[TCA] analyse failed", msg.url, err));
+      }
+      sendResponse({});
+    })();
+    return true;
   }
 });
 
@@ -46,7 +56,10 @@ async function handleContentReport(tabId, payload) {
       finalUrl: null,
       textLength: 0,
       hash: null,
-      error: null
+      error: null,
+      analysisStatus: null,
+      analysisError: null,
+      analysis: null
     };
   });
 
@@ -60,9 +73,13 @@ async function handleContentReport(tabId, payload) {
   await putTabState(tabId, state);
   broadcastState(tabId, state);
 
-  // Kick off extraction for documents that haven't been fetched yet.
   for (const doc of documents) {
-    if (doc.status === "ready") continue;
+    if (doc.status === "ready") {
+      if (!doc.analysisStatus || doc.analysisStatus === "error") {
+        analyzeOne(tabId, doc.url).catch(err => console.error("[TCA] analyse failed", doc.url, err));
+      }
+      continue;
+    }
     extractOne(tabId, doc.url).catch(err => console.error("[TCA] extract failed", doc.url, err));
   }
 }
@@ -77,11 +94,7 @@ async function extractOne(tabId, url) {
     if (!text || text.length < 200) throw new Error("document too short to be a real policy");
     const hash = await sha256Hex(text);
     await putDocument({
-      hash,
-      url,
-      finalUrl: res.url,
-      title,
-      text,
+      hash, url, finalUrl: res.url, title, text,
       extractedAt: new Date().toISOString(),
       textLength: text.length
     });
@@ -93,9 +106,85 @@ async function extractOne(tabId, url) {
       extractedAt: new Date().toISOString(),
       title
     });
+    analyzeOne(tabId, url).catch(err => console.error("[TCA] analyse failed", url, err));
   } catch (err) {
     await updateDocStatus(tabId, url, { status: "error", error: String(err?.message || err) });
   }
+}
+
+async function analyzeOne(tabId, url) {
+  const apiKey = await getApiKey();
+  if (!apiKey) return;
+
+  const state = await getTabState(tabId);
+  if (!state) return;
+  const doc = state.documents.find(d => d.url === url);
+  if (!doc || doc.status !== "ready" || doc.analysisStatus === "ready" || doc.analysisStatus === "analysing") return;
+
+  await updateDocStatus(tabId, url, { analysisStatus: "analysing", analysisError: null });
+
+  try {
+    const fullDoc = await getDocument(doc.hash);
+    if (!fullDoc) throw new Error("document text not found in storage");
+    const analysis = await callOpenAI(apiKey, doc.type, url, fullDoc.text);
+    await updateDocStatus(tabId, url, { analysisStatus: "ready", analysis, analysisError: null });
+  } catch (err) {
+    await updateDocStatus(tabId, url, { analysisStatus: "error", analysisError: String(err?.message || err), analysis: null });
+  }
+}
+
+async function callOpenAI(apiKey, docType, docUrl, text) {
+  const truncated = text.length > 12000 ? text.slice(0, 12000) + "\n[... truncated ...]" : text;
+
+  const prompt = `Analyze this ${docType} document and respond ONLY with a JSON object (no markdown, no explanation).
+
+URL: ${docUrl}
+
+Text:
+${truncated}
+
+Required JSON structure (use exactly this schema):
+{
+  "summary": ["<sentence 1>", "<sentence 2>", "<sentence 3>", "<sentence 4>", "<sentence 5>"],
+  "redFlags": [{"text": "<description>", "severity": "high|medium|low"}],
+  "gdpr": {
+    "score": <integer 0-100>,
+    "present": ["<element found>"],
+    "missing": ["<element missing>"]
+  },
+  "transparencyScore": <integer 0-100>,
+  "transparencyReason": "<one sentence explaining the score>"
+}
+
+Rules:
+- summary: exactly 5 plain-English sentences (≤20 words each) covering what the user agrees to
+- redFlags: 0–8 clauses that disadvantage users; omit array if none
+- gdpr: check for lawful basis, data subject rights, retention periods, DPO contact, data transfers, breach notification
+- transparencyScore: 0 = completely opaque legalese, 100 = clear plain English`;
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      max_tokens: 1024,
+      messages: [{ role: "user", content: prompt }]
+    })
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`OpenAI API ${res.status}: ${body.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content || "";
+  const m = content.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error("no JSON in OpenAI response");
+  return JSON.parse(m[0]);
 }
 
 async function updateDocStatus(tabId, url, patch) {
@@ -112,13 +201,7 @@ function broadcastState(tabId, state) {
 }
 
 // --- HTML → readable text ---------------------------------------------------
-// Minimal, dependency-free extractor. Strips scripts/styles/nav/footer/aside
-// and nav-like sections, then returns concatenated text from <main>/<article>
-// or the body fallback.
 function extractReadableText(html) {
-  // Service worker has no DOMParser; use regex pre-strip, then offload to an
-  // offscreen-free approach by letting DOMParser run here via the sandboxed
-  // pattern: we reconstruct structure with a tiny tag stripper instead.
   const cleaned = html
     .replace(/<!--[\s\S]*?-->/g, " ")
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
@@ -129,7 +212,6 @@ function extractReadableText(html) {
   const titleMatch = cleaned.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleMatch ? decodeEntities(stripTags(titleMatch[1])).trim() : "";
 
-  // Prefer <main> or <article> if present.
   const main = pickFirst(cleaned, [/<main\b[\s\S]*?<\/main>/i, /<article\b[\s\S]*?<\/article>/i]);
   const body = main || pickBody(cleaned) || cleaned;
 

@@ -1,5 +1,8 @@
+import { OPENAI_API_KEY } from "./config.js";
+
 const DOC_PREFIX = "doc:";
 const TAB_PREFIX = "tab:";
+const API_KEY_KEY = "apiKey";
 
 export async function putDocument(doc) {
   await chrome.storage.local.set({ [DOC_PREFIX + doc.hash]: doc });
@@ -29,4 +32,13 @@ export async function sha256Hex(text) {
   const buf = new TextEncoder().encode(text);
   const digest = await crypto.subtle.digest("SHA-256", buf);
   return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+export async function getApiKey() {
+  const out = await chrome.storage.local.get(API_KEY_KEY);
+  return out[API_KEY_KEY] || OPENAI_API_KEY || null;
+}
+
+export async function putApiKey(key) {
+  await chrome.storage.local.set({ [API_KEY_KEY]: key });
 }

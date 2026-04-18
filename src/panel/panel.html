@@ -24,9 +24,16 @@
     <p id="empty" class="tca-empty" hidden>No terms, privacy, cookie or subscription links detected on this page.</p>
   </section>
 
-  <section id="phase2-placeholder" class="tca-card tca-placeholder">
-    <h2 class="tca-h2">Analysis <small>(Phase 2)</small></h2>
-    <p>In Phase 2 this area will show five plain-English bullets, red flags, GDPR completeness, and a transparency score for each document.</p>
+  <section id="settings" class="tca-card">
+    <h2 class="tca-h2">Settings</h2>
+    <div class="tca-kv">
+      <span class="tca-k">API Key</span>
+      <div class="tca-key-row">
+        <input id="api-key-input" type="password" class="tca-input" placeholder="sk-…" autocomplete="off" />
+        <button id="save-key" class="tca-btn">Save</button>
+      </div>
+    </div>
+    <p id="key-status" class="tca-key-status"></p>
   </section>
 
   <script type="module" src="panel.js"></script>
