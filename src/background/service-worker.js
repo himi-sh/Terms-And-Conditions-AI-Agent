@@ -185,27 +185,48 @@ async function analyzeOne(tabId, url) {
 
 async function callOpenAI(apiKey, docType, docUrl, text) {
   const excerpt = buildFocusedExcerpt(text, 12000);
-  const prompt = `Analyze this ${docType} document and return strict JSON only.
+  const prompt = `Analyze this ${docType} document for user rights and risks. Return strict JSON only.
 
 URL: ${docUrl}
 
 Text:
 ${excerpt}
 
-Scoring guidance:
-- transparencyScore: 0 = opaque legalese, 100 = clear plain language.
-- gdpr.score: 0 = missing core clauses, 100 = complete and explicit.
-- riskScore: 0 = very safe for user rights, 100 = very risky/unbalanced.
+=== SCORING RUBRIC ===
+transparencyScore (0-100):
+  90-100: Plain English throughout, concrete examples, no jargon
+  70-89:  Mostly clear, minor legalese
+  40-69:  Mixed clarity, some important vague terms
+  10-39:  Dense legalese, passive voice hides obligations
+  0-9:    Deliberately obfuscatory
 
-Decision guidance:
-- verdict should be one of: "safe", "caution", "avoid".
-- Prefer "avoid" when there are severe penalties, broad liability waivers, forced arbitration, or hard cancellation traps.
+gdpr.score (0-100) — check all 6 pillars:
+  Lawful basis for processing (+15), Data subject rights access/erasure/portability/object (+20),
+  Retention periods specified (+15), DPO or contact named (+10), International transfer safeguards (+20),
+  Breach notification timeline (+20). Score = sum of applicable points.
 
-Rules:
-- summary: exactly 5 plain-English sentences (20 words max each).
-- redFlags: 0-8 user-disadvantaging clauses with verbatim quote snippets (max 200 chars each).
-- gdpr: check lawful basis, data subject rights, retention periods, DPO contact, data transfers, breach notification.
-- actionItems: up to 3 practical actions before accepting.`;
+riskScore (0-100):
+  Add: forced arbitration (+25), class-action waiver (+20), unilateral change without notice (+18),
+  broad IP ownership of user content (+15), data sale to third parties (+15),
+  liability cap below actual damages (+12), auto-renewal without reminder (+10),
+  no-refund policy (+10), account termination without cause (+8), vague "partners" data sharing (+8).
+  Cap at 100.
+
+=== RED FLAG CATEGORIES TO HUNT ===
+Scan every section for: arbitration/dispute clauses, class-action waivers, liability limits,
+IP/content ownership grabs, data sale or "sharing with partners", auto-renewal traps,
+cancellation difficulty, unilateral ToS changes, account suspension without notice,
+mandatory binding arbitration, governing-law clauses that strip local consumer rights,
+forced consent to marketing, hidden fee escalation, broad indemnification of the company.
+
+=== OUTPUT RULES ===
+- summary: exactly 5 plain-English sentences (≤25 words each). Cover: what the service does, data practices, user rights, key risks, and your overall assessment.
+- redFlags: 0-8 items. Each must have a SHORT description of the issue, severity (high/medium/low), and a verbatim quote ≤200 chars that proves it. Only include genuine user-disadvantaging clauses.
+- gdpr: apply the rubric above. present/missing = list of specific clause names, not generic labels.
+- transparencyReason: one sentence explaining the score with a concrete example from the text.
+- verdictReason: one sentence citing the single biggest reason for the verdict.
+- actionItems: 1-3 concrete things to do before accepting (e.g. "opt out of arbitration within 30 days per Section 15").
+- verdict "avoid" if riskScore≥70 or any high-severity flag; "caution" if riskScore 35-69; "safe" otherwise.`;
 
   const headers = {
     "Content-Type": "application/json",
@@ -214,9 +235,9 @@ Rules:
 
   const structuredPayload = {
     model: "gpt-4o-mini",
-    max_tokens: 1100,
+    max_tokens: 1600,
     messages: [
-      { role: "system", content: "You are a strict JSON policy-risk analyzer." },
+      { role: "system", content: "You are a legal-risk analyst specializing in consumer protection. You read Terms of Service and Privacy Policies and identify clauses that harm user rights. You return only valid JSON matching the requested schema — no prose, no markdown." },
       { role: "user", content: prompt }
     ],
     response_format: {
@@ -298,7 +319,7 @@ Rules:
       headers,
       body: JSON.stringify({
         model: "gpt-4o-mini",
-        max_tokens: 1100,
+        max_tokens: 1600,
         messages: [{ role: "user", content: prompt }]
       })
     });
@@ -318,45 +339,73 @@ Rules:
   return sanitizeAnalysis(parsed);
 }
 
+const RISK_HINTS = [
+  /\barbitration\b/i,
+  /\bwaiv(?:e|er|ing)\b/i,
+  /\bliabilit(?:y|ies)\b/i,
+  /\bindemnif(?:y|ication)\b/i,
+  /\bauto[- ]?renew\b/i,
+  /\bcancel(?:lation|ing)?\b/i,
+  /\brefund\b/i,
+  /\bclass[- ]?action\b/i,
+  /\bdata (?:transfer|sale|sharing|broker)\b/i,
+  /\bretention period\b/i,
+  /\bthird[- ]party\b/i,
+  /\bsell.*(?:data|information)\b/i,
+  /\bintellectual property\b/i,
+  /\bperpetual.*licen[sc]e\b/i,
+  /\bgoverning law\b/i,
+  /\bjurisdiction\b/i,
+  /\bbinding\b/i,
+  /\bopt[- ]out\b/i,
+  /\bunilateral(?:ly)?\b/i,
+  /\bsuspend|terminat(?:e|ion)\b/i,
+  /\bno[- ]refund\b/i,
+  /\bwithout notice\b/i,
+  /\bmarketing.*consent\b/i,
+  /\bforce majeure\b/i
+];
+
 function buildFocusedExcerpt(text, maxChars) {
   const normalized = (text || "").replace(/\r/g, "").trim();
   if (normalized.length <= maxChars) return normalized;
 
-  const headBudget = Math.floor(maxChars * 0.45);
-  const tailBudget = Math.floor(maxChars * 0.2);
-  const bridgeBudget = maxChars - headBudget - tailBudget - 64;
+  // Split into paragraphs (blank-line separated blocks)
+  const paragraphs = normalized.split(/\n{2,}/).map(p => p.replace(/\n+/g, " ").trim()).filter(p => p.length > 20);
 
+  const headBudget = Math.floor(maxChars * 0.35);
+  const tailBudget = Math.floor(maxChars * 0.15);
+  const bridgeBudget = maxChars - headBudget - tailBudget - 80;
+
+  // Head: first N chars (intro/scope section)
   const head = normalized.slice(0, headBudget);
+  // Tail: last N chars (often has dispute/governing law)
   const tail = normalized.slice(-tailBudget);
 
-  const riskHints = [
-    /\barbitration\b/i,
-    /\bwaive\b/i,
-    /\bliability\b/i,
-    /\bauto[- ]?renew\b/i,
-    /\bcancel(?:lation)?\b/i,
-    /\brefund\b/i,
-    /\bclass action\b/i,
-    /\bdata transfer\b/i,
-    /\bretention\b/i,
-    /\bthird[- ]party\b/i
-  ];
+  // Bridge: score every paragraph by risk-hint density, pick highest-value ones
+  const scored = paragraphs
+    .filter(p => {
+      const start = normalized.indexOf(p);
+      return start > headBudget && (start + p.length) < (normalized.length - tailBudget);
+    })
+    .map(p => {
+      const hits = RISK_HINTS.filter(re => re.test(p)).length;
+      return { p, hits };
+    })
+    .filter(({ hits }) => hits > 0)
+    .sort((a, b) => b.hits - a.hits);
 
   const selected = [];
   let budget = bridgeBudget;
-  for (const rawLine of normalized.split(/\n+/)) {
-    const line = rawLine.trim();
-    if (line.length < 30 || line.length > 360) continue;
-    if (!riskHints.some(re => re.test(line))) continue;
-    if (selected.includes(line)) continue;
-    if (line.length + 1 > budget) continue;
-    selected.push(line);
-    budget -= (line.length + 1);
-    if (budget < 80) break;
+  for (const { p } of scored) {
+    if (p.length + 2 > budget) continue;
+    selected.push(p);
+    budget -= (p.length + 2);
+    if (budget < 100) break;
   }
 
-  const bridge = selected.join("\n");
-  return `${head}\n[... middle omitted ...]\n${bridge}\n[... ending ...]\n${tail}`.slice(0, maxChars);
+  const bridge = selected.join("\n\n");
+  return `${head}\n\n[... middle omitted — key clauses below ...]\n\n${bridge}\n\n[... ending ...]\n\n${tail}`.slice(0, maxChars);
 }
 
 function sanitizeAnalysis(raw) {
