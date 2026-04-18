@@ -31,5 +31,11 @@
   },
   "action": {
     "default_title": "Open Terms & Conditions Agent"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["src/lib/pdf.worker.min.mjs"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

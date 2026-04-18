@@ -1,29 +1,78 @@
 import { MSG } from "../shared/messages.js";
+import * as pdfjsLib from "../lib/pdf.min.mjs";
+pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL("src/lib/pdf.worker.min.mjs");
 
 let mode = "url";
 
 const modeUrlBtn  = document.getElementById("mode-url");
 const modeTextBtn = document.getElementById("mode-text");
+const modeFileBtn = document.getElementById("mode-file");
 const urlWrap     = document.getElementById("url-input-wrap");
 const textWrap    = document.getElementById("text-input-wrap");
+const fileWrap    = document.getElementById("file-input-wrap");
 const urlInput    = document.getElementById("url-input");
 const textInput   = document.getElementById("text-input");
+const fileInput   = document.getElementById("file-input");
+const fileNameEl  = document.getElementById("file-name");
 const submitBtn   = document.getElementById("submit");
 const statusEl    = document.getElementById("status");
 const resultsEl   = document.getElementById("results");
 
 modeUrlBtn.addEventListener("click",  () => setMode("url"));
 modeTextBtn.addEventListener("click", () => setMode("text"));
+modeFileBtn.addEventListener("click", () => setMode("file"));
+
+fileInput.addEventListener("change", () => {
+  const f = fileInput.files[0];
+  if (f) {
+    fileNameEl.textContent = f.name;
+    fileNameEl.classList.add("selected");
+  } else {
+    fileNameEl.textContent = "Choose a .txt, .pdf, or .html file…";
+    fileNameEl.classList.remove("selected");
+  }
+});
 
 function setMode(m) {
   mode = m;
   urlWrap.hidden  = m !== "url";
   textWrap.hidden = m !== "text";
+  fileWrap.hidden = m !== "file";
   modeUrlBtn.classList.toggle("ana-mode-active",  m === "url");
   modeTextBtn.classList.toggle("ana-mode-active", m === "text");
+  modeFileBtn.classList.toggle("ana-mode-active", m === "file");
 }
 
 submitBtn.addEventListener("click", async () => {
+  if (mode === "file") {
+    const file = fileInput.files[0];
+    if (!file) { showStatus("Choose a file first.", "error"); return; }
+    submitBtn.disabled = true;
+    resultsEl.hidden = true;
+    showStatus("Reading file…", "loading");
+    let text;
+    try {
+      text = await readFileAsText(file);
+    } catch (err) {
+      submitBtn.disabled = false;
+      showStatus("Could not read file: " + err.message, "error");
+      return;
+    }
+    if (!text || text.length < 100) {
+      submitBtn.disabled = false;
+      showStatus("File appears empty or could not be parsed. For PDFs, ensure the file contains selectable text (not scanned images).", "error");
+      return;
+    }
+    showStatus("Analyzing… this may take a few seconds.", "loading");
+    const resp = await chrome.runtime.sendMessage({ kind: MSG.ANALYZE_SUBMIT, mode: "text", content: text })
+      .catch(err => ({ ok: false, error: String(err) }));
+    submitBtn.disabled = false;
+    if (!resp?.ok) { showStatus(resp?.error || "Analysis failed.", "error"); return; }
+    hideStatus();
+    renderResults(resp.text, resp.analysis);
+    return;
+  }
+
   const content = mode === "url"
     ? urlInput.value.trim()
     : textInput.value.trim();
@@ -50,6 +99,28 @@ submitBtn.addEventListener("click", async () => {
   hideStatus();
   renderResults(resp.text, resp.analysis);
 });
+
+async function readFileAsText(file) {
+  const ext = file.name.split(".").pop().toLowerCase();
+  if (ext === "pdf") return extractTextFromPdf(await file.arrayBuffer());
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("FileReader error"));
+    reader.readAsText(file);
+  });
+}
+
+async function extractTextFromPdf(buffer) {
+  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+  const pages = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    pages.push(content.items.map(item => item.str).join(" "));
+  }
+  return pages.join("\n").replace(/\s+/g, " ").trim();
+}
 
 function showStatus(msg, cls) {
   statusEl.textContent = msg;

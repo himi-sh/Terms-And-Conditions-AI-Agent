@@ -15,6 +15,7 @@
   <div class="ana-mode-row">
     <button id="mode-url" class="tca-btn ana-mode-btn ana-mode-active" type="button">URL</button>
     <button id="mode-text" class="tca-btn ana-mode-btn" type="button">Paste Text</button>
+    <button id="mode-file" class="tca-btn ana-mode-btn" type="button">Upload File</button>
   </div>
 
   <div id="url-input-wrap">
@@ -24,6 +25,13 @@
   <div id="text-input-wrap" hidden>
     <textarea id="text-input" class="tca-input ana-textarea"
       placeholder="Paste terms and conditions text here…"></textarea>
+  </div>
+  <div id="file-input-wrap" hidden>
+    <label class="ana-file-label">
+      <input id="file-input" type="file" accept=".txt,.pdf,.html,.htm,.md" class="ana-file-input" />
+      <span id="file-name" class="ana-file-name">Choose a .txt, .pdf, or .html file…</span>
+    </label>
+    <p class="ana-file-hint">PDF text is extracted locally — no file is uploaded to any server.</p>
   </div>
 
   <button id="submit" class="tca-btn ana-submit-btn" type="button">Analyze</button>
