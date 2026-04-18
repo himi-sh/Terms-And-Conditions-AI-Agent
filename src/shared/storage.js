@@ -1,0 +1,32 @@
+const DOC_PREFIX = "doc:";
+const TAB_PREFIX = "tab:";
+
+export async function putDocument(doc) {
+  await chrome.storage.local.set({ [DOC_PREFIX + doc.hash]: doc });
+}
+
+export async function getDocument(hash) {
+  const key = DOC_PREFIX + hash;
+  const out = await chrome.storage.local.get(key);
+  return out[key] || null;
+}
+
+export async function putTabState(tabId, state) {
+  await chrome.storage.local.set({ [TAB_PREFIX + tabId]: state });
+}
+
+export async function getTabState(tabId) {
+  const key = TAB_PREFIX + tabId;
+  const out = await chrome.storage.local.get(key);
+  return out[key] || null;
+}
+
+export async function clearTabState(tabId) {
+  await chrome.storage.local.remove(TAB_PREFIX + tabId);
+}
+
+export async function sha256Hex(text) {
+  const buf = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest("SHA-256", buf);
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
+}

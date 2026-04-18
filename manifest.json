@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Terms and Conditions Agent",
+  "version": "0.1.0",
+  "description": "Reads T&C, privacy, cookie and subscription notices before you accept, flags risks, and keeps a record of what you agreed to.",
+  "minimum_chrome_version": "114",
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab",
+    "sidePanel",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "side_panel": {
+    "default_path": "src/panel/panel.html"
+  },
+  "action": {
+    "default_title": "Open Terms & Conditions Agent"
+  }
+}
