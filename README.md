@@ -29,13 +29,11 @@ The agent runs in the background on every page you visit. When it detects a Term
 > Drop PNG screenshots into `docs/` and they will render here. Paths below are placeholders.
 
 **Side panel — live analysis on a signup page**
-![Side panel auto-analysis](docs/screenshot-panel.png)
-
-**Standalone analyzer — paste a URL or raw text**
 ![Standalone analyzer](docs/screenshot-analyzer.png)
 
-**Accepted-terms vault — version history per URL**
-![Vault](docs/screenshot-vault.png)
+**Standalone analyzer — paste a URL or raw text**
+![Side panel auto-analysis](docs/screenshot-panel.png)
+
 
 <details>
 <summary>ASCII preview of the side panel (if images haven't been added yet)</summary>
