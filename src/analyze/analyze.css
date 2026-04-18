@@ -7,15 +7,22 @@ body { max-width: 820px; margin: 0 auto; padding: 20px 24px; }
 .ana-url-input { width: 100%; padding: 8px 12px; font-size: 13px; }
 
 .ana-file-label {
-  display: flex; align-items: center; gap: 10px; cursor: pointer;
-  border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px;
-  background: var(--surface); transition: border-color 0.15s;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  cursor: pointer; border: 2px dashed var(--border); border-radius: 10px; padding: 28px 20px;
+  background: var(--surface); transition: border-color 0.15s, background 0.15s; text-align: center;
 }
-.ana-file-label:hover { border-color: var(--accent); }
+.ana-file-label:hover, .ana-file-label.drag-over { border-color: var(--accent); background: #111827; }
+.ana-file-icon { font-size: 28px; line-height: 1; }
 .ana-file-input { display: none; }
 .ana-file-name { font-size: 12px; color: var(--muted); flex: 1; word-break: break-all; }
-.ana-file-name.selected { color: var(--text); }
+.ana-file-name.selected { color: var(--text); font-weight: 600; }
 .ana-file-hint { font-size: 11px; color: var(--muted); margin: 6px 0 0; }
+
+.ana-status.loading::before {
+  content: ""; display: inline-block; width: 10px; height: 10px;
+  border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%;
+  animation: tca-spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px;
+}
 .ana-textarea {
   width: 100%; height: 180px; padding: 8px 12px; font-size: 12px;
   resize: vertical; font-family: inherit; line-height: 1.5;
@@ -39,6 +46,7 @@ body { max-width: 820px; margin: 0 auto; padding: 20px 24px; }
 .ana-label-note { text-transform: none; letter-spacing: 0; font-weight: 400; }
 
 #results { margin-top: 6px; }
+.ana-verdict { margin-top: 8px; }
 
 .ana-source-text {
   background: var(--surface); border: 1px solid var(--border); border-radius: 8px;

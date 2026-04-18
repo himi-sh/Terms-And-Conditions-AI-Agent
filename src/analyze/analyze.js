@@ -22,16 +22,32 @@ modeUrlBtn.addEventListener("click",  () => setMode("url"));
 modeTextBtn.addEventListener("click", () => setMode("text"));
 modeFileBtn.addEventListener("click", () => setMode("file"));
 
-fileInput.addEventListener("change", () => {
-  const f = fileInput.files[0];
+fileInput.addEventListener("change", () => updateFileName(fileInput.files[0]));
+
+const dropZone = document.getElementById("file-drop-zone");
+dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("drag-over"); });
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+dropZone.addEventListener("drop", e => {
+  e.preventDefault();
+  dropZone.classList.remove("drag-over");
+  const f = e.dataTransfer.files[0];
+  if (f) {
+    const dt = new DataTransfer();
+    dt.items.add(f);
+    fileInput.files = dt.files;
+    updateFileName(f);
+  }
+});
+
+function updateFileName(f) {
   if (f) {
     fileNameEl.textContent = f.name;
     fileNameEl.classList.add("selected");
   } else {
-    fileNameEl.textContent = "Choose a .txt, .pdf, or .html file…";
+    fileNameEl.textContent = "Drop a file here or click to browse";
     fileNameEl.classList.remove("selected");
   }
-});
+}
 
 function setMode(m) {
   mode = m;
@@ -130,9 +146,34 @@ function showStatus(msg, cls) {
 function hideStatus() { statusEl.hidden = true; }
 
 function renderResults(rawText, analysis) {
+  // Verdict
+  const verdictEl = document.getElementById("verdict");
+  const verdict = normalizeVerdict(analysis.verdict);
+  verdictEl.className = `ana-verdict ana-section tca-verdict tca-verdict-${verdict}`;
+  verdictEl.innerHTML = "";
+
+  const vIcon = document.createElement("span");
+  vIcon.className = "tca-verdict-icon";
+  vIcon.textContent = verdictIcon(verdict);
+  verdictEl.appendChild(vIcon);
+
+  const vBody = document.createElement("div");
+  vBody.className = "tca-verdict-body";
+  const vTitle = document.createElement("div");
+  vTitle.className = "tca-verdict-title";
+  vTitle.textContent = verdictText(verdict);
+  const vReason = document.createElement("div");
+  vReason.className = "tca-verdict-reason";
+  vReason.textContent = analysis.verdictReason || defaultVerdictReason(verdict);
+  vBody.appendChild(vTitle);
+  vBody.appendChild(vReason);
+  verdictEl.appendChild(vBody);
+  verdictEl.hidden = false;
+
   // Scores
   const scoresEl = document.getElementById("scores");
   scoresEl.innerHTML = "";
+  scoresEl.appendChild(scoreChip("Risk", analysis.riskScore, "", { inverse: true }));
   scoresEl.appendChild(scoreChip("Transparency", analysis.transparencyScore, analysis.transparencyReason));
   if (analysis.gdpr) scoresEl.appendChild(scoreChip("GDPR", analysis.gdpr.score));
 
@@ -155,7 +196,11 @@ function renderResults(rawText, analysis) {
   for (const f of (analysis.redFlags || [])) {
     const li = document.createElement("li");
     li.className = `tca-flag tca-flag-${f.severity}`;
-    li.textContent = f.text;
+    const icon = document.createElement("span");
+    icon.className = "tca-flag-icon";
+    icon.textContent = flagIcon(f.severity);
+    li.appendChild(icon);
+    li.appendChild(document.createTextNode(f.text));
     flagsList.appendChild(li);
   }
 
@@ -169,14 +214,27 @@ function renderResults(rawText, analysis) {
   for (const item of (analysis.gdpr?.present || [])) {
     const span = document.createElement("span");
     span.className = "tca-gdpr-item ok";
-    span.textContent = item;
+    span.textContent = "✓ " + item;
     gdprEl.appendChild(span);
   }
   for (const item of (analysis.gdpr?.missing || [])) {
     const span = document.createElement("span");
     span.className = "tca-gdpr-item miss";
-    span.textContent = item;
+    span.textContent = "✗ " + item;
     gdprEl.appendChild(span);
+  }
+
+  // Action items
+  const actionsLabel = document.getElementById("actions-label");
+  const actionsEl = document.getElementById("actions");
+  const hasActions = analysis.actionItems?.length > 0;
+  actionsLabel.hidden = !hasActions;
+  actionsEl.hidden = !hasActions;
+  actionsEl.innerHTML = "";
+  for (const item of (analysis.actionItems || [])) {
+    const li = document.createElement("li");
+    li.textContent = item;
+    actionsEl.appendChild(li);
   }
 
   // Source text with highlighted red flags
@@ -190,10 +248,10 @@ function renderResults(rawText, analysis) {
 function highlightText(rawText, redFlags) {
   // Build ranges from verbatim quotes provided by the AI
   const ranges = [];
+  const lower = rawText.toLowerCase();
   for (const f of redFlags) {
     const q = f.quote?.trim();
     if (!q || q.length < 8) continue;
-    const lower = rawText.toLowerCase();
     const lq    = q.toLowerCase();
     let idx = 0;
     while (true) {
@@ -239,13 +297,14 @@ function escapeHtml(s) {
     .replace(/>/g, "&gt;");
 }
 
-function scoreChip(label, score, reason) {
+function scoreChip(label, score, reason, opts = {}) {
   const chip = document.createElement("div");
   chip.className = "tca-score-chip";
   if (reason) chip.title = reason;
+  const cls = scoreClass(score, opts.inverse);
 
   const num = document.createElement("span");
-  num.className = `tca-score-num ${scoreClass(score)}`;
+  num.className = `tca-score-num ${cls}`;
   num.textContent = score != null ? score : "—";
   chip.appendChild(num);
 
@@ -257,17 +316,56 @@ function scoreChip(label, score, reason) {
   const bar = document.createElement("div");
   bar.className = "tca-score-bar";
   const fill = document.createElement("div");
-  fill.className = `tca-score-fill ${scoreClass(score)}`;
-  fill.style.width = `${score ?? 0}%`;
+  fill.className = `tca-score-fill ${cls}`;
+  fill.style.width = "0%";
   bar.appendChild(fill);
   chip.appendChild(bar);
+
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    fill.style.width = `${score ?? 0}%`;
+  }));
 
   return chip;
 }
 
-function scoreClass(score) {
+function scoreClass(score, inverse = false) {
   if (score == null) return "";
+  if (inverse) {
+    if (score >= 70) return "bad";
+    if (score >= 40) return "warn";
+    return "good";
+  }
   if (score >= 70) return "good";
   if (score >= 40) return "warn";
   return "bad";
+}
+
+function normalizeVerdict(v) {
+  const s = String(v || "").toLowerCase();
+  if (s === "safe" || s === "caution" || s === "avoid") return s;
+  return "caution";
+}
+
+function verdictText(v) {
+  if (v === "safe") return "Likely safe";
+  if (v === "avoid") return "Avoid accepting";
+  return "Proceed with caution";
+}
+
+function defaultVerdictReason(v) {
+  if (v === "safe") return "No major risks were detected in this policy.";
+  if (v === "avoid") return "This policy contains multiple high-risk clauses for users.";
+  return "Some important terms should be reviewed before accepting.";
+}
+
+function verdictIcon(v) {
+  if (v === "safe") return "✅";
+  if (v === "avoid") return "🚫";
+  return "⚠️";
+}
+
+function flagIcon(severity) {
+  if (severity === "high") return "🔴";
+  if (severity === "medium") return "🟡";
+  return "🔵";
 }

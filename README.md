@@ -9,10 +9,13 @@ Chrome / Edge browser extension (Manifest V3) that automatically detects Terms &
 - **AI analysis** — sends up to 12,000 chars to OpenAI and returns:
   - Five-bullet plain-English summary
   - Red flags (text, severity, verbatim quote)
+  - Risk score + plain-language verdict (`safe` / `caution` / `avoid`)
   - GDPR completeness score (present / missing clauses)
   - Transparency score (0–100)
+  - "Before you accept" action checklist
 - **Side panel UI** — live results panel (scores, GDPR grid, red-flag list) opens alongside any page; no page reload needed.
 - **Standalone analyzer** — `analyze.html` lets you paste a URL or raw text and analyze any document on demand, with red-flag text highlighting.
+- **Analysis cache** — document-level hash cache reuses prior AI analysis to reduce latency and API spend across tabs/sessions.
 - **Accepted-terms vault** — stores URL, timestamp, content hash, and version history of every document you've reviewed in `chrome.storage.local`.
 - **Rights-action generator** — drafts GDPR action letters (access / delete / port / object / cancel) for the site you're on.
 - **API key management** — enter your OpenAI key in the Settings panel; stored locally and never sent anywhere except the OpenAI API.

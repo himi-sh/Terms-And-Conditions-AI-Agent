@@ -155,7 +155,10 @@ function renderAnalysis(doc) {
   if (doc.analysisStatus === "analysing") {
     const p = document.createElement("p");
     p.className = "tca-analysis-loading";
-    p.textContent = "Analysing with OpenAI…";
+    const spinner = document.createElement("span");
+    spinner.className = "tca-spinner";
+    p.appendChild(spinner);
+    p.appendChild(document.createTextNode("Analysing with AI…"));
     section.appendChild(p);
     return section;
   }
@@ -176,8 +179,11 @@ function renderAnalysis(doc) {
   if (doc.analysisStatus === "ready" && doc.analysis) {
     const a = doc.analysis;
 
+    section.appendChild(verdictBanner(a.verdict, a.verdictReason));
+
     const scores = document.createElement("div");
     scores.className = "tca-scores";
+    scores.appendChild(scoreChip("Risk", a.riskScore, "", { inverse: true }));
     scores.appendChild(scoreChip("Transparency", a.transparencyScore, a.transparencyReason));
     if (a.gdpr) scores.appendChild(scoreChip("GDPR", a.gdpr.score));
     section.appendChild(scores);
@@ -197,9 +203,21 @@ function renderAnalysis(doc) {
       for (const f of a.redFlags) {
         const li = document.createElement("li");
         li.className = `tca-flag tca-flag-${f.severity}`;
-        li.textContent = f.text;
+        const icon = document.createElement("span");
+        icon.className = "tca-flag-icon";
+        icon.textContent = flagIcon(f.severity);
+        li.appendChild(icon);
+        li.appendChild(document.createTextNode(f.text));
         ul.appendChild(li);
       }
+      section.appendChild(ul);
+    }
+
+    if (a.actionItems?.length) {
+      section.appendChild(analysisLabel("Before you accept"));
+      const ul = document.createElement("ul");
+      ul.className = "tca-bullets";
+      for (const item of a.actionItems) { const li = document.createElement("li"); li.textContent = item; ul.appendChild(li); }
       section.appendChild(ul);
     }
 
@@ -210,13 +228,13 @@ function renderAnalysis(doc) {
       for (const item of (a.gdpr.present || [])) {
         const span = document.createElement("span");
         span.className = "tca-gdpr-item ok";
-        span.textContent = item;
+        span.textContent = "✓ " + item;
         grid.appendChild(span);
       }
       for (const item of (a.gdpr.missing || [])) {
         const span = document.createElement("span");
         span.className = "tca-gdpr-item miss";
-        span.textContent = item;
+        span.textContent = "✗ " + item;
         grid.appendChild(span);
       }
       section.appendChild(grid);
@@ -233,13 +251,41 @@ function analysisLabel(text) {
   return div;
 }
 
-function scoreChip(label, score, reason) {
+function verdictBanner(verdict, reason) {
+  const div = document.createElement("div");
+  const normalized = normalizeVerdict(verdict);
+  div.className = `tca-verdict tca-verdict-${normalized}`;
+
+  const icon = document.createElement("span");
+  icon.className = "tca-verdict-icon";
+  icon.textContent = verdictIcon(normalized);
+  div.appendChild(icon);
+
+  const body = document.createElement("div");
+  body.className = "tca-verdict-body";
+
+  const title = document.createElement("div");
+  title.className = "tca-verdict-title";
+  title.textContent = verdictText(normalized);
+  body.appendChild(title);
+
+  const reasonEl = document.createElement("div");
+  reasonEl.className = "tca-verdict-reason";
+  reasonEl.textContent = reason || defaultVerdictReason(normalized);
+  body.appendChild(reasonEl);
+
+  div.appendChild(body);
+  return div;
+}
+
+function scoreChip(label, score, reason, opts = {}) {
   const chip = document.createElement("div");
   chip.className = "tca-score-chip";
   if (reason) chip.title = reason;
+  const cls = scoreClass(score, opts.inverse);
 
   const num = document.createElement("span");
-  num.className = `tca-score-num ${scoreClass(score)}`;
+  num.className = `tca-score-num ${cls}`;
   num.textContent = score != null ? score : "—";
   chip.appendChild(num);
 
@@ -251,16 +297,25 @@ function scoreChip(label, score, reason) {
   const bar = document.createElement("div");
   bar.className = "tca-score-bar";
   const fill = document.createElement("div");
-  fill.className = `tca-score-fill ${scoreClass(score)}`;
-  fill.style.width = `${score ?? 0}%`;
+  fill.className = `tca-score-fill ${cls}`;
+  fill.style.width = "0%";
   bar.appendChild(fill);
   chip.appendChild(bar);
+
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    fill.style.width = `${score ?? 0}%`;
+  }));
 
   return chip;
 }
 
-function scoreClass(score) {
+function scoreClass(score, inverse = false) {
   if (score == null) return "";
+  if (inverse) {
+    if (score >= 70) return "bad";
+    if (score >= 40) return "warn";
+    return "good";
+  }
   if (score >= 70) return "good";
   if (score >= 40) return "warn";
   return "bad";
@@ -276,3 +331,33 @@ function setBadge(el, text, kind) {
 }
 function fmtNum(n) { return new Intl.NumberFormat().format(n || 0); }
 function fmtDate(iso) { try { return new Date(iso).toLocaleTimeString(); } catch { return iso; } }
+
+function normalizeVerdict(v) {
+  const s = String(v || "").toLowerCase();
+  if (s === "safe" || s === "caution" || s === "avoid") return s;
+  return "caution";
+}
+
+function verdictText(v) {
+  if (v === "safe") return "Likely safe";
+  if (v === "avoid") return "Avoid accepting";
+  return "Proceed with caution";
+}
+
+function defaultVerdictReason(v) {
+  if (v === "safe") return "No major risks were detected in this policy.";
+  if (v === "avoid") return "This policy contains multiple high-risk clauses for users.";
+  return "Some important terms should be reviewed before accepting.";
+}
+
+function verdictIcon(v) {
+  if (v === "safe") return "✅";
+  if (v === "avoid") return "🚫";
+  return "⚠️";
+}
+
+function flagIcon(severity) {
+  if (severity === "high") return "🔴";
+  if (severity === "medium") return "🟡";
+  return "🔵";
+}

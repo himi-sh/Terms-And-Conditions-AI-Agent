@@ -1,5 +1,15 @@
 import { MSG } from "../shared/messages.js";
-import { putDocument, getDocument, putTabState, getTabState, clearTabState, sha256Hex, getApiKey } from "../shared/storage.js";
+import {
+  putDocument,
+  getDocument,
+  putAnalysis,
+  getAnalysis,
+  putTabState,
+  getTabState,
+  clearTabState,
+  sha256Hex,
+  getApiKey
+} from "../shared/storage.js";
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
@@ -58,7 +68,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
         }
         const label = msg.mode === "url" ? msg.content : "(pasted text)";
-        const analysis = await callOpenAI(apiKey, "document", label, text);
+        const textHash = await sha256Hex(text);
+        const cachedAnalysis = await getAnalysis(textHash);
+        const analysis = cachedAnalysis || await callOpenAI(apiKey, "document", label, text);
+        if (!cachedAnalysis) await putAnalysis(textHash, analysis);
         sendResponse({ ok: true, text, analysis });
       } catch (err) {
         sendResponse({ ok: false, error: String(err?.message || err) });
@@ -154,9 +167,16 @@ async function analyzeOne(tabId, url) {
   await updateDocStatus(tabId, url, { analysisStatus: "analysing", analysisError: null });
 
   try {
+    const cachedAnalysis = await getAnalysis(doc.hash);
+    if (cachedAnalysis) {
+      await updateDocStatus(tabId, url, { analysisStatus: "ready", analysis: cachedAnalysis, analysisError: null });
+      return;
+    }
+
     const fullDoc = await getDocument(doc.hash);
     if (!fullDoc) throw new Error("document text not found in storage");
     const analysis = await callOpenAI(apiKey, doc.type, url, fullDoc.text);
+    await putAnalysis(doc.hash, analysis);
     await updateDocStatus(tabId, url, { analysisStatus: "ready", analysis, analysisError: null });
   } catch (err) {
     await updateDocStatus(tabId, url, { analysisStatus: "error", analysisError: String(err?.message || err), analysis: null });
@@ -164,57 +184,281 @@ async function analyzeOne(tabId, url) {
 }
 
 async function callOpenAI(apiKey, docType, docUrl, text) {
-  const truncated = text.length > 12000 ? text.slice(0, 12000) + "\n[... truncated ...]" : text;
-
-  const prompt = `Analyze this ${docType} document and respond ONLY with a JSON object (no markdown, no explanation).
+  const excerpt = buildFocusedExcerpt(text, 12000);
+  const prompt = `Analyze this ${docType} document and return strict JSON only.
 
 URL: ${docUrl}
 
 Text:
-${truncated}
+${excerpt}
 
-Required JSON structure (use exactly this schema):
-{
-  "summary": ["<sentence 1>", "<sentence 2>", "<sentence 3>", "<sentence 4>", "<sentence 5>"],
-  "redFlags": [{"text": "<description>", "severity": "high|medium|low", "quote": "<verbatim excerpt from document, max 200 chars, or empty string>"}],
-  "gdpr": {
-    "score": <integer 0-100>,
-    "present": ["<element found>"],
-    "missing": ["<element missing>"]
-  },
-  "transparencyScore": <integer 0-100>,
-  "transparencyReason": "<one sentence explaining the score>"
-}
+Scoring guidance:
+- transparencyScore: 0 = opaque legalese, 100 = clear plain language.
+- gdpr.score: 0 = missing core clauses, 100 = complete and explicit.
+- riskScore: 0 = very safe for user rights, 100 = very risky/unbalanced.
+
+Decision guidance:
+- verdict should be one of: "safe", "caution", "avoid".
+- Prefer "avoid" when there are severe penalties, broad liability waivers, forced arbitration, or hard cancellation traps.
 
 Rules:
-- summary: exactly 5 plain-English sentences (≤20 words each) covering what the user agrees to
-- redFlags: 0–8 clauses that disadvantage users; omit array if none; "quote" must be the exact verbatim sentence or phrase from the text (max 200 chars) that the flag refers to
-- gdpr: check for lawful basis, data subject rights, retention periods, DPO contact, data transfers, breach notification
-- transparencyScore: 0 = completely opaque legalese, 100 = clear plain English`;
+- summary: exactly 5 plain-English sentences (20 words max each).
+- redFlags: 0-8 user-disadvantaging clauses with verbatim quote snippets (max 200 chars each).
+- gdpr: check lawful basis, data subject rights, retention periods, DPO contact, data transfers, breach notification.
+- actionItems: up to 3 practical actions before accepting.`;
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+  const headers = {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${apiKey}`
+  };
+
+  const structuredPayload = {
+    model: "gpt-4o-mini",
+    max_tokens: 1100,
+    messages: [
+      { role: "system", content: "You are a strict JSON policy-risk analyzer." },
+      { role: "user", content: prompt }
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "tnc_analysis",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            summary: { type: "array", items: { type: "string" } },
+            redFlags: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  text: { type: "string" },
+                  severity: { type: "string", enum: ["high", "medium", "low"] },
+                  quote: { type: "string" }
+                },
+                required: ["text", "severity", "quote"],
+                additionalProperties: false
+              }
+            },
+            gdpr: {
+              type: "object",
+              properties: {
+                score: { type: "integer" },
+                present: { type: "array", items: { type: "string" } },
+                missing: { type: "array", items: { type: "string" } }
+              },
+              required: ["score", "present", "missing"],
+              additionalProperties: false
+            },
+            transparencyScore: { type: "integer" },
+            transparencyReason: { type: "string" },
+            riskScore: { type: "integer" },
+            verdict: { type: "string", enum: ["safe", "caution", "avoid"] },
+            verdictReason: { type: "string" },
+            actionItems: { type: "array", items: { type: "string" } }
+          },
+          required: [
+            "summary",
+            "redFlags",
+            "gdpr",
+            "transparencyScore",
+            "transparencyReason",
+            "riskScore",
+            "verdict",
+            "verdictReason",
+            "actionItems"
+          ],
+          additionalProperties: false
+        }
+      }
+    }
+  };
+
+  let parsed = null;
+  const firstTry = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      max_tokens: 1024,
-      messages: [{ role: "user", content: prompt }]
-    })
+    headers,
+    body: JSON.stringify(structuredPayload)
   });
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`OpenAI API ${res.status}: ${body.slice(0, 200)}`);
+  if (firstTry.ok) {
+    const data = await firstTry.json();
+    const content = data.choices?.[0]?.message?.content || "";
+    parsed = JSON.parse(content);
+  } else {
+    const errorBody = await firstTry.text().catch(() => "");
+    // Older API behavior may reject json_schema; retry with classic JSON prompting.
+    if (firstTry.status !== 400 || !/response_format|json_schema/i.test(errorBody)) {
+      throw new Error(`OpenAI API ${firstTry.status}: ${errorBody.slice(0, 200)}`);
+    }
+
+    const legacyRes = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        max_tokens: 1100,
+        messages: [{ role: "user", content: prompt }]
+      })
+    });
+
+    if (!legacyRes.ok) {
+      const legacyBody = await legacyRes.text().catch(() => "");
+      throw new Error(`OpenAI API ${legacyRes.status}: ${legacyBody.slice(0, 200)}`);
+    }
+
+    const legacyData = await legacyRes.json();
+    const content = legacyData.choices?.[0]?.message?.content || "";
+    const match = content.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error("no JSON in OpenAI response");
+    parsed = JSON.parse(match[0]);
   }
 
-  const data = await res.json();
-  const content = data.choices?.[0]?.message?.content || "";
-  const m = content.match(/\{[\s\S]*\}/);
-  if (!m) throw new Error("no JSON in OpenAI response");
-  return JSON.parse(m[0]);
+  return sanitizeAnalysis(parsed);
+}
+
+function buildFocusedExcerpt(text, maxChars) {
+  const normalized = (text || "").replace(/\r/g, "").trim();
+  if (normalized.length <= maxChars) return normalized;
+
+  const headBudget = Math.floor(maxChars * 0.45);
+  const tailBudget = Math.floor(maxChars * 0.2);
+  const bridgeBudget = maxChars - headBudget - tailBudget - 64;
+
+  const head = normalized.slice(0, headBudget);
+  const tail = normalized.slice(-tailBudget);
+
+  const riskHints = [
+    /\barbitration\b/i,
+    /\bwaive\b/i,
+    /\bliability\b/i,
+    /\bauto[- ]?renew\b/i,
+    /\bcancel(?:lation)?\b/i,
+    /\brefund\b/i,
+    /\bclass action\b/i,
+    /\bdata transfer\b/i,
+    /\bretention\b/i,
+    /\bthird[- ]party\b/i
+  ];
+
+  const selected = [];
+  let budget = bridgeBudget;
+  for (const rawLine of normalized.split(/\n+/)) {
+    const line = rawLine.trim();
+    if (line.length < 30 || line.length > 360) continue;
+    if (!riskHints.some(re => re.test(line))) continue;
+    if (selected.includes(line)) continue;
+    if (line.length + 1 > budget) continue;
+    selected.push(line);
+    budget -= (line.length + 1);
+    if (budget < 80) break;
+  }
+
+  const bridge = selected.join("\n");
+  return `${head}\n[... middle omitted ...]\n${bridge}\n[... ending ...]\n${tail}`.slice(0, maxChars);
+}
+
+function sanitizeAnalysis(raw) {
+  const summary = Array.isArray(raw?.summary)
+    ? raw.summary.map(s => String(s || "").trim()).filter(Boolean).slice(0, 5)
+    : [];
+
+  const redFlags = Array.isArray(raw?.redFlags)
+    ? raw.redFlags.map(flag => ({
+      text: String(flag?.text || "").trim(),
+      severity: normalizeSeverity(flag?.severity),
+      quote: String(flag?.quote || "").trim().slice(0, 200)
+    })).filter(flag => flag.text).slice(0, 8)
+    : [];
+
+  const gdprPresent = Array.isArray(raw?.gdpr?.present)
+    ? raw.gdpr.present.map(v => String(v || "").trim()).filter(Boolean).slice(0, 10)
+    : [];
+  const gdprMissing = Array.isArray(raw?.gdpr?.missing)
+    ? raw.gdpr.missing.map(v => String(v || "").trim()).filter(Boolean).slice(0, 10)
+    : [];
+
+  const gdprScore = clampScore(raw?.gdpr?.score);
+  const transparencyScore = clampScore(raw?.transparencyScore);
+  const transparencyReason = String(raw?.transparencyReason || "").trim();
+
+  const riskScore = clampScore(raw?.riskScore ?? estimateRiskScore({ redFlags, gdprScore, transparencyScore }));
+  const verdict = normalizeVerdict(raw?.verdict, riskScore);
+  const verdictReason = String(raw?.verdictReason || defaultVerdictReason(verdict)).trim();
+  const modelActionItems = Array.isArray(raw?.actionItems)
+    ? raw.actionItems.map(v => String(v || "").trim()).filter(Boolean).slice(0, 3)
+    : [];
+  const actionItems = modelActionItems.length ? modelActionItems : defaultActionItems(redFlags, verdict);
+
+  return {
+    summary,
+    redFlags,
+    gdpr: {
+      score: gdprScore,
+      present: gdprPresent,
+      missing: gdprMissing
+    },
+    transparencyScore,
+    transparencyReason,
+    riskScore,
+    verdict,
+    verdictReason,
+    actionItems
+  };
+}
+
+function normalizeSeverity(v) {
+  const s = String(v || "").toLowerCase();
+  if (s === "high" || s === "medium" || s === "low") return s;
+  return "medium";
+}
+
+function clampScore(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function estimateRiskScore({ redFlags, gdprScore, transparencyScore }) {
+  let risk = Math.round((100 - transparencyScore) * 0.45 + (100 - gdprScore) * 0.3);
+  for (const flag of redFlags) {
+    if (flag.severity === "high") risk += 14;
+    else if (flag.severity === "medium") risk += 8;
+    else risk += 4;
+  }
+  return clampScore(risk);
+}
+
+function normalizeVerdict(value, riskScore) {
+  const v = String(value || "").toLowerCase();
+  if (v === "safe" || v === "caution" || v === "avoid") return v;
+  if (riskScore >= 70) return "avoid";
+  if (riskScore >= 40) return "caution";
+  return "safe";
+}
+
+function defaultVerdictReason(verdict) {
+  if (verdict === "avoid") return "This agreement includes terms that strongly disadvantage users.";
+  if (verdict === "caution") return "Some clauses are acceptable, but a few important terms need review before accepting.";
+  return "No major risks were found, but you should still verify key business terms.";
+}
+
+function defaultActionItems(redFlags, verdict) {
+  const items = [];
+  if (redFlags.some(f => /auto[- ]?renew|cancel|refund/i.test(f.text))) {
+    items.push("Confirm cancellation and refund terms in writing before accepting.");
+  }
+  if (redFlags.some(f => /arbitration|class action|waive/i.test(f.text))) {
+    items.push("Review dispute-resolution and waiver clauses to understand your legal options.");
+  }
+  if (redFlags.some(f => /data|share|third[- ]party|transfer/i.test(f.text))) {
+    items.push("Check what personal data is shared and whether opt-out controls exist.");
+  }
+  if (!items.length && verdict !== "safe") {
+    items.push("Do a quick manual review of payment, cancellation, and liability sections before accepting.");
+  }
+  return items.slice(0, 3);
 }
 
 async function updateDocStatus(tabId, url, patch) {

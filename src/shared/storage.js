@@ -2,6 +2,7 @@ import { OPENAI_API_KEY } from "./config.js";
 
 const DOC_PREFIX = "doc:";
 const TAB_PREFIX = "tab:";
+const ANALYSIS_PREFIX = "analysis:";
 const API_KEY_KEY = "apiKey";
 
 export async function putDocument(doc) {
@@ -26,6 +27,22 @@ export async function getTabState(tabId) {
 
 export async function clearTabState(tabId) {
   await chrome.storage.local.remove(TAB_PREFIX + tabId);
+}
+
+export async function putAnalysis(hash, analysis) {
+  await chrome.storage.local.set({
+    [ANALYSIS_PREFIX + hash]: {
+      hash,
+      analysis,
+      analyzedAt: new Date().toISOString()
+    }
+  });
+}
+
+export async function getAnalysis(hash) {
+  const key = ANALYSIS_PREFIX + hash;
+  const out = await chrome.storage.local.get(key);
+  return out[key]?.analysis || null;
 }
 
 export async function sha256Hex(text) {
