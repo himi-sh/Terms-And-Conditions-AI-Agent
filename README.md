@@ -29,11 +29,11 @@ All before you click Accept.
 
 **Side panel — live analysis on a page**
 
-![Side panel](docs/screenshot-panel.png)
+![Side panel](docs/screenshot-analyzer.png)
 
 **Standalone analyzer — paste any URL or text**
 
-![Standalone analyzer](docs/screenshot-analyzer.png)
+![Standalone analyzer](docs/screenshot-panel.png)
 
 ---
 
