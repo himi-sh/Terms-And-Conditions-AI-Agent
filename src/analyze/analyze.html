@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Analyze — Terms Agent</title>
+  <link rel="stylesheet" href="../panel/panel.css" />
+  <link rel="stylesheet" href="analyze.css" />
+</head>
+<body>
+  <header class="tca-header">
+    <h1>Analyze URL / Text</h1>
+  </header>
+
+  <div class="ana-mode-row">
+    <button id="mode-url" class="tca-btn ana-mode-btn ana-mode-active" type="button">URL</button>
+    <button id="mode-text" class="tca-btn ana-mode-btn" type="button">Paste Text</button>
+  </div>
+
+  <div id="url-input-wrap">
+    <input id="url-input" class="tca-input ana-url-input" type="url"
+      placeholder="https://example.com/terms-of-service" autocomplete="off" />
+  </div>
+  <div id="text-input-wrap" hidden>
+    <textarea id="text-input" class="tca-input ana-textarea"
+      placeholder="Paste terms and conditions text here…"></textarea>
+  </div>
+
+  <button id="submit" class="tca-btn ana-submit-btn" type="button">Analyze</button>
+
+  <div id="status" class="ana-status" hidden></div>
+
+  <div id="results" hidden>
+    <div id="scores" class="tca-scores ana-section"></div>
+
+    <div class="ana-label">Summary</div>
+    <ul id="summary" class="tca-bullets ana-section"></ul>
+
+    <div class="ana-label" id="flags-label" hidden>Red Flags</div>
+    <ul id="flags" class="tca-flags ana-section" hidden></ul>
+
+    <div class="ana-label" id="gdpr-label" hidden>GDPR</div>
+    <div id="gdpr" class="tca-gdpr ana-section" hidden></div>
+
+    <div class="ana-label">Source Text <span class="ana-label-note">(red flags highlighted)</span></div>
+    <div id="source-text" class="ana-source-text ana-section"></div>
+  </div>
+
+  <script type="module" src="analyze.js"></script>
+</body>
+</html>

@@ -36,6 +36,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     })();
     return true;
   }
+
+  if (msg.kind === MSG.ANALYZE_SUBMIT) {
+    (async () => {
+      try {
+        const apiKey = await getApiKey();
+        if (!apiKey) { sendResponse({ ok: false, error: "No API key set. Add one in the panel settings." }); return; }
+        let text = msg.content;
+        if (msg.mode === "url") {
+          const res = await fetch(msg.content, { credentials: "omit", redirect: "follow" });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const html = await res.text();
+          ({ text } = extractReadableText(html));
+          if (!text || text.length < 100) throw new Error("Could not extract readable text from that URL.");
+        }
+        const label = msg.mode === "url" ? msg.content : "(pasted text)";
+        const analysis = await callOpenAI(apiKey, "document", label, text);
+        sendResponse({ ok: true, text, analysis });
+      } catch (err) {
+        sendResponse({ ok: false, error: String(err?.message || err) });
+      }
+    })();
+    return true;
+  }
 });
 
 async function currentTabId() {
@@ -146,7 +169,7 @@ ${truncated}
 Required JSON structure (use exactly this schema):
 {
   "summary": ["<sentence 1>", "<sentence 2>", "<sentence 3>", "<sentence 4>", "<sentence 5>"],
-  "redFlags": [{"text": "<description>", "severity": "high|medium|low"}],
+  "redFlags": [{"text": "<description>", "severity": "high|medium|low", "quote": "<verbatim excerpt from document, max 200 chars, or empty string>"}],
   "gdpr": {
     "score": <integer 0-100>,
     "present": ["<element found>"],
@@ -158,7 +181,7 @@ Required JSON structure (use exactly this schema):
 
 Rules:
 - summary: exactly 5 plain-English sentences (≤20 words each) covering what the user agrees to
-- redFlags: 0–8 clauses that disadvantage users; omit array if none
+- redFlags: 0–8 clauses that disadvantage users; omit array if none; "quote" must be the exact verbatim sentence or phrase from the text (max 200 chars) that the flag refers to
 - gdpr: check for lawful basis, data subject rights, retention periods, DPO contact, data transfers, breach notification
 - transparencyScore: 0 = completely opaque legalese, 100 = clear plain English`;
 

@@ -41,6 +41,11 @@ function showKeyStatus(text, cls) {
   els.keyStatus.className = `tca-key-status ${cls}`;
 }
 
+// --- Open analyze page ---
+document.getElementById("open-analyze").addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("src/analyze/analyze.html") });
+});
+
 // --- State ---
 els.refresh.addEventListener("click", requestState);
 
