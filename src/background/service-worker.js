@@ -48,7 +48,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const html = await res.text();
           ({ text } = extractReadableText(html));
-          if (!text || text.length < 100) throw new Error("Could not extract readable text from that URL.");
+          if (!text || text.length < 100) {
+            text = html
+              .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+              .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+              .replace(/<[^>]+>/g, " ")
+              .replace(/\s+/g, " ")
+              .trim();
+          }
         }
         const label = msg.mode === "url" ? msg.content : "(pasted text)";
         const analysis = await callOpenAI(apiKey, "document", label, text);
