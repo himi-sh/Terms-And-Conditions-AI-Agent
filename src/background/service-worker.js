@@ -12,7 +12,15 @@ import {
 } from "../shared/storage.js";
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
+  configurePanelBehavior();
+});
+
+chrome.runtime.onStartup?.addListener(() => {
+  configurePanelBehavior();
+});
+
+chrome.action?.onClicked?.addListener((tab) => {
+  openPanel(tab).catch(err => console.error("[TCA] panel open failed", err));
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => { clearTabState(tabId).catch(() => {}); });
@@ -29,7 +37,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.kind === MSG.PANEL_REQUEST_STATE) {
     (async () => {
-      const tabId = await currentTabId();
+      const tabId = normalizeTabId(msg.tabId) ?? await currentTabId();
       const state = tabId ? await getTabState(tabId) : null;
       sendResponse({ kind: MSG.PANEL_STATE, state });
     })();
@@ -38,7 +46,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.kind === MSG.PANEL_ANALYSE_DOC) {
     (async () => {
-      const tabId = await currentTabId();
+      const tabId = normalizeTabId(msg.tabId) ?? await currentTabId();
       if (tabId && msg.url) {
         analyzeOne(tabId, msg.url).catch(err => console.error("[TCA] analyse failed", msg.url, err));
       }
@@ -84,6 +92,45 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 async function currentTabId() {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   return tab?.id ?? null;
+}
+
+async function configurePanelBehavior() {
+  // Safari has no sidePanel API; the optional chain resolves to undefined and this is a no-op there.
+  try {
+    await chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true });
+  } catch (err) {
+    console.warn("[TCA] setPanelBehavior unavailable", err);
+  }
+}
+
+async function openPanel(tab) {
+  // Chrome: open the native side panel. Safari: chrome.sidePanel is undefined, so fall through to a tab.
+  if (chrome.sidePanel?.open && tab?.id != null) {
+    try {
+      await chrome.sidePanel.open({ tabId: tab.id });
+      return;
+    } catch (err) {
+      console.warn("[TCA] side panel unavailable, opening panel tab", err);
+    }
+  }
+
+  const targetTabId = normalizeTabId(tab?.id);
+  const url = chrome.runtime.getURL(`src/panel/panel.html${targetTabId ? `?tabId=${targetTabId}` : ""}`);
+
+  // Safari always lands here. Reuse an existing panel tab instead of stacking duplicates.
+  const panelBase = chrome.runtime.getURL("src/panel/panel.html");
+  const [existing] = await chrome.tabs.query({ url: `${panelBase}*` }).catch(() => []);
+  if (existing?.id != null) {
+    await chrome.tabs.update(existing.id, { url, active: true });
+    if (existing.windowId != null) await chrome.windows?.update?.(existing.windowId, { focused: true });
+    return;
+  }
+  await chrome.tabs.create({ url, active: true });
+}
+
+function normalizeTabId(value) {
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? id : null;
 }
 
 async function handleContentReport(tabId, payload) {
