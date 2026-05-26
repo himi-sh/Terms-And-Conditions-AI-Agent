@@ -238,12 +238,12 @@ async function analyzeOne(tabId, url) {
 }
 
 async function callOpenAI(apiKey, docType, docUrl, text) {
-  const excerpt = buildFocusedExcerpt(text, 12000);
+  const excerpt = buildSectionAwareExcerpt(text, 12000);
   const prompt = `Analyze this ${docType} document for user rights and risks. Return strict JSON only.
 
 URL: ${docUrl}
 
-Text:
+Document (sections delimited by === Title ===; most risk-relevant sections included):
 ${excerpt}
 
 === SCORING RUBRIC ===
@@ -490,6 +490,70 @@ function buildFocusedExcerpt(text, maxChars) {
   return `${head}\n\n[... middle omitted — key clauses below ...]\n\n${bridge}\n\n[... ending ...]\n\n${tail}`.slice(0, maxChars);
 }
 
+// Split structured text (with === Heading === markers) into sections.
+function splitIntoSections(text) {
+  const sections = [];
+  let heading = null;
+  let buffer  = [];
+
+  for (const line of text.split("\n")) {
+    const m = line.match(/^=== (.+?) ===$/);
+    if (m) {
+      const body = buffer.join("\n").trim();
+      if (body.length > 0) sections.push({ heading, text: body });
+      heading = m[1].trim();
+      buffer  = [];
+    } else {
+      buffer.push(line);
+    }
+  }
+  const lastBody = buffer.join("\n").trim();
+  if (lastBody.length > 0) sections.push({ heading, text: lastBody });
+  return sections.filter(s => s.text.length > 10 || s.heading);
+}
+
+// Section-aware excerpt: select whole sections by risk-hit density.
+// Falls back to paragraph-level scoring when the document has no headings.
+function buildSectionAwareExcerpt(text, maxChars) {
+  const normalized = (text || "").replace(/\r/g, "").trim();
+  if (normalized.length <= maxChars) return normalized;
+
+  const sections = splitIntoSections(normalized);
+
+  // Fewer than 3 sections means no meaningful heading structure — use paragraph fallback
+  if (sections.length < 3) return buildFocusedExcerpt(normalized, maxChars);
+
+  const scored = sections.map((s, i) => {
+    const full = s.heading ? `=== ${s.heading} ===\n${s.text}` : s.text;
+    const hits = RISK_HINTS.filter(re => re.test(full)).length;
+    return { full, hits, index: i };
+  });
+
+  // Always include first section (preamble/scope) and last (dispute/governing law)
+  const alwaysOn = new Set([0, scored.length - 1]);
+  const mandatory = scored.filter(s => alwaysOn.has(s.index));
+  let budget = maxChars - mandatory.reduce((sum, s) => sum + s.full.length + 2, 0) - 60;
+
+  const byRisk = scored
+    .filter(s => !alwaysOn.has(s.index) && s.hits > 0)
+    .sort((a, b) => b.hits - a.hits);
+
+  const selected = new Set([0, scored.length - 1]);
+  for (const s of byRisk) {
+    if (s.full.length + 2 > budget) continue;
+    selected.add(s.index);
+    budget -= s.full.length + 2;
+    if (budget < 200) break;
+  }
+
+  return scored
+    .filter(s => selected.has(s.index))
+    .sort((a, b) => a.index - b.index)
+    .map(s => s.full)
+    .join("\n\n")
+    .slice(0, maxChars);
+}
+
 function sanitizeAnalysis(raw) {
   const summary = Array.isArray(raw?.summary)
     ? raw.summary.map(s => String(s || "").trim()).filter(Boolean).slice(0, 5)
@@ -636,7 +700,14 @@ function extractReadableText(html) {
 
   const text = decodeEntities(
     body
-      .replace(/<(br|\/p|\/li|\/h[1-6]|\/div|\/section)\b[^>]*>/gi, "\n")
+      // Preserve headings as section markers before stripping all other tags
+      .replace(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/gi, (_, content) => {
+        const t = content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+        return t ? `\n=== ${t} ===\n` : "\n";
+      })
+      // Remove hidden / decorative elements that could carry injected text
+      .replace(/<[^>]+\baria-hidden\s*=\s*["']true["'][^>]*>[\s\S]*?<\/[a-z][a-z0-9]*>/gi, " ")
+      .replace(/<(br|\/p|\/li|\/div|\/section)\b[^>]*>/gi, "\n")
       .replace(/<[^>]+>/g, " ")
   )
     .replace(/\u00a0/g, " ")
