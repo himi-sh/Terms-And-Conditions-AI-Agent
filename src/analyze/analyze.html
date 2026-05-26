@@ -31,7 +31,7 @@
       <input id="file-input" type="file" accept=".txt,.pdf,.html,.htm,.md" class="ana-file-input" />
       <span class="ana-file-icon">📄</span>
       <span id="file-name" class="ana-file-name">Drop a file here or click to browse</span>
-      <span style="font-size:11px;color:var(--muted)">.txt · .pdf · .html</span>
+      <span class="ana-file-types">.txt · .pdf · .html</span>
     </label>
     <p class="ana-file-hint">PDF text is extracted locally — no file is uploaded to any server.</p>
   </div>
@@ -56,6 +56,9 @@
 
     <div class="ana-label" id="actions-label" hidden>Before you accept</div>
     <ul id="actions" class="tca-bullets ana-section" hidden></ul>
+
+    <div class="ana-label" id="clauses-label" hidden>Clause Coverage</div>
+    <div id="clauses" class="tca-clauses ana-section" hidden></div>
 
     <div class="ana-label">Source Text <span class="ana-label-note">(red flags highlighted)</span></div>
     <div id="source-text" class="ana-source-text ana-section"></div>

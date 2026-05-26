@@ -1,16 +1,22 @@
 import { MSG } from "../shared/messages.js";
 import { getApiKey, putApiKey } from "../shared/storage.js";
+import {
+  scoreChip, verdictBanner, analysisLabel, flagIcon, clauseGrid
+} from "../shared/ui.js";
 
 const els = {
-  title: document.getElementById("page-title"),
-  url: document.getElementById("page-url"),
-  type: document.getElementById("page-type"),
-  docs: document.getElementById("docs"),
-  empty: document.getElementById("empty"),
-  refresh: document.getElementById("refresh"),
-  apiKeyInput: document.getElementById("api-key-input"),
-  saveKey: document.getElementById("save-key"),
-  keyStatus: document.getElementById("key-status")
+  title:          document.getElementById("page-title"),
+  url:            document.getElementById("page-url"),
+  type:           document.getElementById("page-type"),
+  docs:           document.getElementById("docs"),
+  empty:          document.getElementById("empty"),
+  refresh:        document.getElementById("refresh"),
+  settings:       document.getElementById("settings"),
+  settingsToggle: document.getElementById("settings-toggle"),
+  apiKeyInput:    document.getElementById("api-key-input"),
+  keyVisibility:  document.getElementById("key-visibility"),
+  saveKey:        document.getElementById("save-key"),
+  keyStatus:      document.getElementById("key-status")
 };
 
 const fallbackTabId = normalizeTabId(new URLSearchParams(location.search).get("tabId"));
@@ -21,15 +27,27 @@ const fallbackTabId = normalizeTabId(new URLSearchParams(location.search).get("t
   if (key) {
     els.apiKeyInput.value = key;
     showKeyStatus("Key saved.", "ok");
+  } else {
+    openSettings();
   }
 })();
+
+els.settingsToggle.addEventListener("click", () => {
+  if (els.settings.hidden) openSettings(); else closeSettings();
+});
+
+els.keyVisibility.addEventListener("click", () => {
+  const showing = els.apiKeyInput.type === "text";
+  els.apiKeyInput.type = showing ? "password" : "text";
+  els.keyVisibility.textContent = showing ? "Show" : "Hide";
+});
 
 els.saveKey.addEventListener("click", async () => {
   const key = els.apiKeyInput.value.trim();
   if (!key) { showKeyStatus("Enter a key first.", "err"); return; }
   await putApiKey(key);
   showKeyStatus("Saved — analysing any ready documents…", "ok");
-  // Trigger analysis for all ready-but-unanalysed docs
+  closeSettings();
   const resp = await chrome.runtime.sendMessage({
     kind: MSG.PANEL_REQUEST_STATE,
     tabId: fallbackTabId
@@ -44,6 +62,17 @@ els.saveKey.addEventListener("click", async () => {
     }
   }
 });
+
+function openSettings() {
+  els.settings.hidden = false;
+  els.settingsToggle.classList.add("tca-settings-open");
+  els.apiKeyInput.focus();
+}
+
+function closeSettings() {
+  els.settings.hidden = true;
+  els.settingsToggle.classList.remove("tca-settings-open");
+}
 
 function showKeyStatus(text, cls) {
   els.keyStatus.textContent = text;
@@ -117,7 +146,7 @@ function renderDoc(doc) {
 
   const title = document.createElement("div");
   title.className = "tca-doc-title";
-  title.textContent = doc.title || doc.text || doc.url;
+  title.textContent = doc.title || docDisplayName(doc.url);
   head.appendChild(title);
 
   const status = document.createElement("span");
@@ -204,7 +233,11 @@ function renderAnalysis(doc) {
       section.appendChild(analysisLabel("Summary"));
       const ul = document.createElement("ul");
       ul.className = "tca-bullets";
-      for (const b of a.summary) { const li = document.createElement("li"); li.textContent = b; ul.appendChild(li); }
+      for (const b of a.summary) {
+        const li = document.createElement("li");
+        li.textContent = b;
+        ul.appendChild(li);
+      }
       section.appendChild(ul);
     }
 
@@ -229,7 +262,11 @@ function renderAnalysis(doc) {
       section.appendChild(analysisLabel("Before you accept"));
       const ul = document.createElement("ul");
       ul.className = "tca-bullets";
-      for (const item of a.actionItems) { const li = document.createElement("li"); li.textContent = item; ul.appendChild(li); }
+      for (const item of a.actionItems) {
+        const li = document.createElement("li");
+        li.textContent = item;
+        ul.appendChild(li);
+      }
       section.appendChild(ul);
     }
 
@@ -251,86 +288,14 @@ function renderAnalysis(doc) {
       }
       section.appendChild(grid);
     }
+
+    if (a.clauses?.length) {
+      section.appendChild(analysisLabel("Clause Coverage"));
+      section.appendChild(clauseGrid(a.clauses));
+    }
   }
 
   return section;
-}
-
-function analysisLabel(text) {
-  const div = document.createElement("div");
-  div.className = "tca-analysis-label";
-  div.textContent = text;
-  return div;
-}
-
-function verdictBanner(verdict, reason) {
-  const div = document.createElement("div");
-  const normalized = normalizeVerdict(verdict);
-  div.className = `tca-verdict tca-verdict-${normalized}`;
-
-  const icon = document.createElement("span");
-  icon.className = "tca-verdict-icon";
-  icon.textContent = verdictIcon(normalized);
-  div.appendChild(icon);
-
-  const body = document.createElement("div");
-  body.className = "tca-verdict-body";
-
-  const title = document.createElement("div");
-  title.className = "tca-verdict-title";
-  title.textContent = verdictText(normalized);
-  body.appendChild(title);
-
-  const reasonEl = document.createElement("div");
-  reasonEl.className = "tca-verdict-reason";
-  reasonEl.textContent = reason || defaultVerdictReason(normalized);
-  body.appendChild(reasonEl);
-
-  div.appendChild(body);
-  return div;
-}
-
-function scoreChip(label, score, reason, opts = {}) {
-  const chip = document.createElement("div");
-  chip.className = "tca-score-chip";
-  if (reason) chip.title = reason;
-  const cls = scoreClass(score, opts.inverse);
-
-  const num = document.createElement("span");
-  num.className = `tca-score-num ${cls}`;
-  num.textContent = score != null ? score : "—";
-  chip.appendChild(num);
-
-  const lbl = document.createElement("span");
-  lbl.className = "tca-score-label";
-  lbl.textContent = label;
-  chip.appendChild(lbl);
-
-  const bar = document.createElement("div");
-  bar.className = "tca-score-bar";
-  const fill = document.createElement("div");
-  fill.className = `tca-score-fill ${cls}`;
-  fill.style.width = "0%";
-  bar.appendChild(fill);
-  chip.appendChild(bar);
-
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    fill.style.width = `${score ?? 0}%`;
-  }));
-
-  return chip;
-}
-
-function scoreClass(score, inverse = false) {
-  if (score == null) return "";
-  if (inverse) {
-    if (score >= 70) return "bad";
-    if (score >= 40) return "warn";
-    return "good";
-  }
-  if (score >= 70) return "good";
-  if (score >= 40) return "warn";
-  return "bad";
 }
 
 async function triggerAnalysis(url) {
@@ -345,39 +310,29 @@ function setBadge(el, text, kind) {
   el.textContent = text;
   el.className = `tca-badge type-${kind}`;
 }
+
+function docDisplayName(url) {
+  try {
+    const u = new URL(url);
+    const last = u.pathname.split("/").filter(Boolean).pop();
+    return last ? decodeURIComponent(last).replace(/[-_]/g, " ") : u.hostname;
+  } catch {
+    return url;
+  }
+}
+
 function fmtNum(n) { return new Intl.NumberFormat().format(n || 0); }
-function fmtDate(iso) { try { return new Date(iso).toLocaleTimeString(); } catch { return iso; } }
+
+function fmtDate(iso) {
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString();
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " " + d.toLocaleTimeString();
+  } catch { return iso; }
+}
+
 function normalizeTabId(value) {
   const id = Number(value);
   return Number.isInteger(id) && id > 0 ? id : null;
-}
-
-function normalizeVerdict(v) {
-  const s = String(v || "").toLowerCase();
-  if (s === "safe" || s === "caution" || s === "avoid") return s;
-  return "caution";
-}
-
-function verdictText(v) {
-  if (v === "safe") return "Likely safe";
-  if (v === "avoid") return "Avoid accepting";
-  return "Proceed with caution";
-}
-
-function defaultVerdictReason(v) {
-  if (v === "safe") return "No major risks were detected in this policy.";
-  if (v === "avoid") return "This policy contains multiple high-risk clauses for users.";
-  return "Some important terms should be reviewed before accepting.";
-}
-
-function verdictIcon(v) {
-  if (v === "safe") return "✅";
-  if (v === "avoid") return "🚫";
-  return "⚠️";
-}
-
-function flagIcon(severity) {
-  if (severity === "high") return "🔴";
-  if (severity === "medium") return "🟡";
-  return "🔵";
 }
