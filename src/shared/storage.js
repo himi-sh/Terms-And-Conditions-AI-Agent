@@ -1,9 +1,9 @@
-import { OPENAI_API_KEY } from "./config.js";
-
 const DOC_PREFIX = "doc:";
 const TAB_PREFIX = "tab:";
 const ANALYSIS_PREFIX = "analysis:";
 const API_KEY_KEY = "apiKey";
+
+let bundledApiKeyPromise = null;
 
 export async function putDocument(doc) {
   await chrome.storage.local.set({ [DOC_PREFIX + doc.hash]: doc });
@@ -53,9 +53,20 @@ export async function sha256Hex(text) {
 
 export async function getApiKey() {
   const out = await chrome.storage.local.get(API_KEY_KEY);
-  return out[API_KEY_KEY] || OPENAI_API_KEY || null;
+  return out[API_KEY_KEY] || await getBundledApiKey() || null;
 }
 
 export async function putApiKey(key) {
   await chrome.storage.local.set({ [API_KEY_KEY]: key });
+}
+
+async function getBundledApiKey() {
+  bundledApiKeyPromise ||= fetch(chrome.runtime.getURL("src/shared/config.js"), { cache: "no-store" })
+    .then(res => res.ok ? res.text() : "")
+    .then(source => {
+      const match = source.match(/OPENAI_API_KEY\s*=\s*(['"`])([\s\S]*?)\1/);
+      return match?.[2]?.trim() || "";
+    })
+    .catch(() => "");
+  return bundledApiKeyPromise;
 }

@@ -13,6 +13,8 @@ const els = {
   keyStatus: document.getElementById("key-status")
 };
 
+const fallbackTabId = normalizeTabId(new URLSearchParams(location.search).get("tabId"));
+
 // --- API key management ---
 (async () => {
   const key = await getApiKey();
@@ -28,10 +30,17 @@ els.saveKey.addEventListener("click", async () => {
   await putApiKey(key);
   showKeyStatus("Saved — analysing any ready documents…", "ok");
   // Trigger analysis for all ready-but-unanalysed docs
-  const resp = await chrome.runtime.sendMessage({ kind: MSG.PANEL_REQUEST_STATE }).catch(() => null);
+  const resp = await chrome.runtime.sendMessage({
+    kind: MSG.PANEL_REQUEST_STATE,
+    tabId: fallbackTabId
+  }).catch(() => null);
   for (const doc of resp?.state?.documents || []) {
     if (doc.status === "ready" && !doc.analysisStatus) {
-      chrome.runtime.sendMessage({ kind: MSG.PANEL_ANALYSE_DOC, url: doc.url }).catch(() => {});
+      chrome.runtime.sendMessage({
+        kind: MSG.PANEL_ANALYSE_DOC,
+        url: doc.url,
+        tabId: fallbackTabId
+      }).catch(() => {});
     }
   }
 });
@@ -59,7 +68,10 @@ chrome.tabs.onUpdated.addListener((_tabId, info) => { if (info.status === "compl
 requestState();
 
 async function requestState() {
-  const resp = await chrome.runtime.sendMessage({ kind: MSG.PANEL_REQUEST_STATE }).catch(() => null);
+  const resp = await chrome.runtime.sendMessage({
+    kind: MSG.PANEL_REQUEST_STATE,
+    tabId: fallbackTabId
+  }).catch(() => null);
   render(resp?.state || null);
 }
 
@@ -322,7 +334,11 @@ function scoreClass(score, inverse = false) {
 }
 
 async function triggerAnalysis(url) {
-  await chrome.runtime.sendMessage({ kind: MSG.PANEL_ANALYSE_DOC, url }).catch(() => {});
+  await chrome.runtime.sendMessage({
+    kind: MSG.PANEL_ANALYSE_DOC,
+    url,
+    tabId: fallbackTabId
+  }).catch(() => {});
 }
 
 function setBadge(el, text, kind) {
@@ -331,6 +347,10 @@ function setBadge(el, text, kind) {
 }
 function fmtNum(n) { return new Intl.NumberFormat().format(n || 0); }
 function fmtDate(iso) { try { return new Date(iso).toLocaleTimeString(); } catch { return iso; } }
+function normalizeTabId(value) {
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
 
 function normalizeVerdict(v) {
   const s = String(v || "").toLowerCase();

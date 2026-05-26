@@ -37,19 +37,23 @@ All before you click Accept.
 
 ---
 
-## How to run it
+## How to run it on macOS, Windows, or Linux
 
 **Requirements:** Chrome 114+ or Edge 114+, and an [OpenAI API key](https://platform.openai.com/api-keys).
 
 1. Clone or download this repository.
-2. *(Optional)* Add your OpenAI key to `src/shared/config.js` — copy `src/shared/config.example.js` and paste your key. Or skip this and enter the key inside the extension's Settings panel at runtime.
-3. Open `chrome://extensions` (or `edge://extensions`) in your browser.
-4. Turn on **Developer mode** (top-right toggle).
-5. Click **Load unpacked** and select this folder.
-6. Pin the extension icon, then click it to open the side panel.
-7. Browse normally. The side panel updates automatically whenever it finds a policy document.
+2. Open the extension manager in your browser:
+   - Chrome: `chrome://extensions`
+   - Edge: `edge://extensions`
+3. Turn on **Developer mode** (top-right toggle).
+4. Click **Load unpacked** and select the repository folder, not the `src` folder.
+5. Pin the extension icon, then click it to open the side panel.
+6. Browse normally. The side panel updates automatically whenever it finds a policy document.
+7. Add your OpenAI key in the extension's Settings panel. You can also optionally create `src/shared/config.js` from `src/shared/config.example.js`, but the extension no longer requires that file to exist.
 
 To reload after code changes: click the refresh icon on the extensions page. Content-script changes also require a page reload on the tab under test.
+
+Chrome and Edge on macOS both use the same Manifest V3 extension APIs here. If a browser build does not expose the side panel API, clicking the extension icon falls back to opening the panel UI in a normal tab.
 
 ---
 
